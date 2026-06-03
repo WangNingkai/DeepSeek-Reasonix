@@ -323,9 +323,11 @@ func chatREPL(args []string) int {
 
 	sink := &eventSink{ch: eventCh}
 	ctrl, err := setup(ctx, *model, *maxSteps, false, sink)
-	if err != nil && errors.Is(err, boot.ErrUnknownModel) && isInteractive() {
-		// The configured model no longer resolves (e.g. a renamed/removed
-		// provider). Re-run the wizard instead of dead-ending, then retry.
+	if err != nil && errors.Is(err, boot.ErrUnknownModel) && isInteractive() && config.SourcePath() == "" {
+		// True first run (no config anywhere) whose default model can't resolve:
+		// guide setup rather than dead-ending, then retry. A model failure against
+		// an existing config falls through to the error below — re-running the
+		// wizard would overwrite the user's config (#2856).
 		fmt.Fprintln(os.Stderr, i18n.M.ReconfigureOnUnknownModel)
 		if rc := interactiveSetup("reasonix.toml"); rc != 0 {
 			return rc
@@ -1255,27 +1257,10 @@ func readStdin() string {
 func welcome(version string) int {
 	src := config.SourcePath()
 
-	// First run on an interactive terminal: actively guide setup rather than
-	// printing a static screen and exiting. interactiveSetup owns the language
-	// prompt and welcome banner so every prompt the user sees is already
-	// localized to their choice.
-	if src == "" && isInteractive() {
-		if rc := interactiveSetup("reasonix.toml"); rc != 0 {
-			return rc
-		}
-		// Config just written; reload so .env (and any pinned language) is
-		// picked up. If the chosen provider's key is ready, drop into chat.
-		if cfg, err := config.Load(); err == nil && cfg.Validate(cfg.DefaultModel) == nil {
-			if cfg.Language != "" {
-				i18n.DetectLanguage(cfg.Language)
-			}
-			fmt.Printf("\n"+i18n.M.StartingChatFmt+"\n\n", bold("reasonix chat"))
-			return chatREPL(nil)
-		}
-		fmt.Println("\n" + i18n.M.SetKeyHint)
-		return 0
-	}
-
+	// A bare `reasonix` never auto-launches the setup wizard — it surprised users
+	// who had already configured (a different cwd hides a project reasonix.toml)
+	// and could overwrite an existing config (#2856). No config resolvable → fall
+	// through to the status banner below, which points the user at `reasonix setup`.
 	cfg, cfgErr := config.Load()
 	if cfgErr != nil {
 		cfg = config.Default()
