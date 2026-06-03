@@ -490,8 +490,9 @@ func Default() *Config {
 }
 
 // Load builds the configuration: defaults, then user config, then project
-// config, then any MCP servers from Claude Code's .mcp.json. A .env in the
-// working directory is loaded first so api_key_env can resolve.
+// config, then MCP servers from Claude Code's .mcp.json, then (lowest priority)
+// the v0.x ~/.reasonix/config.json's mcpServers. A .env in the working directory
+// is loaded first so api_key_env can resolve.
 func Load() (*Config, error) {
 	loadDotEnv()
 	cfg := Default()
@@ -523,6 +524,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.mergeMCPJSON(entries)
+
+	// Lowest priority: the v0.x ~/.reasonix/config.json's mcpServers, so upgrading
+	// from the TypeScript line keeps MCP servers without rewriting them. Anything
+	// the v2 config or .mcp.json already declared wins on a name collision.
+	cfg.mergeMCPJSON(loadLegacyMCP(legacyConfigPath()))
 	normalizeLegacyEffort(cfg)
 	return cfg, nil
 }
