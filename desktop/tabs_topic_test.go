@@ -193,7 +193,7 @@ func TestLegacySessionsMigrateIntoGlobalTopics(t *testing.T) {
 	}
 }
 
-func TestV05LegacyEventSessionsImportIntoGlobalTopicAndDefaultTab(t *testing.T) {
+func TestV05LegacyEventSessionsImportIntoGlobalTopic(t *testing.T) {
 	home := isolateDesktopUserDirs(t)
 
 	legacyDir := filepath.Join(home, ".reasonix", "sessions")
@@ -212,32 +212,10 @@ func TestV05LegacyEventSessionsImportIntoGlobalTopicAndDefaultTab(t *testing.T) 
 		t.Fatalf("legacy v0.5 session was not imported to %s: %v", migratedSession, err)
 	}
 
-	tab := &WorkspaceTab{
-		ID:            "tab_v053",
-		Scope:         "global",
-		WorkspaceRoot: globalTabWorkspaceRoot(),
-		Ready:         false,
-		disabledMCP:   map[string]ServerView{},
-	}
-	app := &App{
-		tabs:        map[string]*WorkspaceTab{"tab_v053": tab},
-		tabOrder:    []string{"tab_v053"},
-		activeTabID: "tab_v053",
-	}
-	app.buildTabController(tab)
-	if tab.Ctrl != nil {
-		defer tab.Ctrl.Close()
-	}
-
 	wantTopicID := legacySessionTopicID(migratedSession)
-	if tab.TopicID != wantTopicID {
-		t.Fatalf("default global tab topicID = %q, want imported v0.5 topic %q", tab.TopicID, wantTopicID)
-	}
-	if tab.Ctrl == nil {
-		t.Fatalf("tab controller was not built")
-	}
-	if tab.Ctrl.SessionPath() != migratedSession {
-		t.Fatalf("tab session path = %q, want imported v0.5 session %q", tab.Ctrl.SessionPath(), migratedSession)
+	migratedTopics := migrateLegacySessionsIntoGlobalTopics(destDir)
+	if len(migratedTopics) != 1 || migratedTopics[0] != wantTopicID {
+		t.Fatalf("migrated topics = %#v, want imported v0.5 topic %q", migratedTopics, wantTopicID)
 	}
 
 	nodes := NewApp().ListProjectTree()
