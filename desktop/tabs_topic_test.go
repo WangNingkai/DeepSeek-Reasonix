@@ -43,6 +43,23 @@ func writeLegacySession(t *testing.T, dir, name, prompt string, modTime time.Tim
 	return path
 }
 
+func writeLegacyEventSession(t *testing.T, dir, name, prompt, reply string, modTime time.Time) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir legacy sessions: %v", err)
+	}
+	path := filepath.Join(dir, name)
+	body := `{"type":"user.message","id":1,"ts":"t","turn":0,"text":` + strconv.Quote(prompt) + `}` + "\n" +
+		`{"type":"model.final","id":2,"ts":"t","turn":0,"content":` + strconv.Quote(reply) + `,"toolCalls":[],"usage":{},"costUsd":0}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write legacy event session: %v", err)
+	}
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("chtimes legacy event session: %v", err)
+	}
+	return path
+}
+
 func TestDeleteTopicKeepsSessionHistory(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
@@ -173,6 +190,69 @@ func TestLegacySessionsMigrateIntoGlobalTopics(t *testing.T) {
 	nodes = NewApp().ListProjectTree()
 	if got := len(nodes[0].Children); got != 2 {
 		t.Fatalf("migration should be idempotent, global topics = %d", got)
+	}
+}
+
+func TestV05LegacyEventSessionsImportIntoGlobalTopicAndDefaultTab(t *testing.T) {
+	home := isolateDesktopUserDirs(t)
+
+	legacyDir := filepath.Join(home, ".reasonix", "sessions")
+	destDir := config.SessionDir()
+	writeLegacyEventSession(t, legacyDir, "v053-chat.events.jsonl", "hello from v0.53", "hi from v0.53", time.Now().Add(-time.Hour))
+
+	imported, err := agent.MigrateLegacySessions(legacyDir, destDir)
+	if err != nil {
+		t.Fatalf("migrate legacy sessions: %v", err)
+	}
+	if imported != 1 {
+		t.Fatalf("imported legacy sessions = %d, want 1", imported)
+	}
+	migratedSession := filepath.Join(destDir, "v053-chat.jsonl")
+	if _, err := os.Stat(migratedSession); err != nil {
+		t.Fatalf("legacy v0.5 session was not imported to %s: %v", migratedSession, err)
+	}
+
+	tab := &WorkspaceTab{
+		ID:            "tab_v053",
+		Scope:         "global",
+		WorkspaceRoot: globalTabWorkspaceRoot(),
+		Ready:         false,
+		disabledMCP:   map[string]ServerView{},
+	}
+	app := &App{
+		tabs:        map[string]*WorkspaceTab{"tab_v053": tab},
+		tabOrder:    []string{"tab_v053"},
+		activeTabID: "tab_v053",
+	}
+	app.buildTabController(tab)
+	if tab.Ctrl != nil {
+		defer tab.Ctrl.Close()
+	}
+
+	wantTopicID := legacySessionTopicID(migratedSession)
+	if tab.TopicID != wantTopicID {
+		t.Fatalf("default global tab topicID = %q, want imported v0.5 topic %q", tab.TopicID, wantTopicID)
+	}
+	if tab.Ctrl == nil {
+		t.Fatalf("tab controller was not built")
+	}
+	if tab.Ctrl.SessionPath() != migratedSession {
+		t.Fatalf("tab session path = %q, want imported v0.5 session %q", tab.Ctrl.SessionPath(), migratedSession)
+	}
+
+	nodes := NewApp().ListProjectTree()
+	if len(nodes) != 1 || nodes[0].Kind != "global_folder" {
+		t.Fatalf("project tree = %#v, want global folder", nodes)
+	}
+	if len(nodes[0].Children) != 1 || nodes[0].Children[0].TopicID != wantTopicID {
+		t.Fatalf("global topics = %#v, want imported v0.5 topic %q", nodes[0].Children, wantTopicID)
+	}
+	meta, ok, err := agent.LoadBranchMeta(migratedSession)
+	if err != nil || !ok {
+		t.Fatalf("load imported v0.5 meta: ok=%v err=%v", ok, err)
+	}
+	if meta.Scope != "global" || meta.TopicID != wantTopicID {
+		t.Fatalf("imported v0.5 meta = %+v", meta)
 	}
 }
 
