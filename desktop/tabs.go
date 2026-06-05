@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -1457,6 +1458,7 @@ func legacySessionTopicID(path string) string {
 	if id == "" {
 		return ""
 	}
+	sum := sha256.Sum256([]byte(id))
 	var b strings.Builder
 	b.WriteString("legacy_")
 	for _, r := range id {
@@ -1469,7 +1471,11 @@ func legacySessionTopicID(path string) string {
 			b.WriteByte('_')
 		}
 	}
-	return strings.TrimRight(b.String(), "_")
+	prefix := strings.TrimRight(b.String(), "_")
+	if prefix == "legacy" {
+		prefix = "legacy_session"
+	}
+	return prefix + "_" + hex.EncodeToString(sum[:])[:12]
 }
 
 // TopicMeta describes a topic for the project tree.

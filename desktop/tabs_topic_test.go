@@ -176,6 +176,38 @@ func TestLegacySessionsMigrateIntoGlobalTopics(t *testing.T) {
 	}
 }
 
+func TestLegacySessionTopicIDsKeepNormalizedNameCollisionsDistinct(t *testing.T) {
+	isolateDesktopUserDirs(t)
+
+	dir := config.SessionDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir sessions: %v", err)
+	}
+	dotted := writeLegacySession(t, dir, "chat.1.jsonl", "dotted prompt", time.Now().Add(-2*time.Hour))
+	underscored := writeLegacySession(t, dir, "chat_1.jsonl", "underscored prompt", time.Now().Add(-time.Hour))
+
+	dottedTopic := legacySessionTopicID(dotted)
+	underscoredTopic := legacySessionTopicID(underscored)
+	if dottedTopic == underscoredTopic {
+		t.Fatalf("normalized legacy topic IDs collided: %q", dottedTopic)
+	}
+
+	nodes := NewApp().ListProjectTree()
+	if len(nodes) != 1 || nodes[0].Kind != "global_folder" {
+		t.Fatalf("project tree = %#v, want global folder", nodes)
+	}
+	if got := len(nodes[0].Children); got != 2 {
+		t.Fatalf("global migrated topics = %d, want 2: %#v", got, nodes[0].Children)
+	}
+	seen := map[string]bool{}
+	for _, child := range nodes[0].Children {
+		seen[child.TopicID] = true
+	}
+	if !seen[dottedTopic] || !seen[underscoredTopic] {
+		t.Fatalf("global topics = %#v, want %q and %q", nodes[0].Children, dottedTopic, underscoredTopic)
+	}
+}
+
 func TestDefaultGlobalTabGetsMigratedTopicID(t *testing.T) {
 	isolateDesktopUserDirs(t)
 
