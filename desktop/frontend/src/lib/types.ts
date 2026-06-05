@@ -481,6 +481,7 @@ export interface AgentView {
 export interface SettingsView {
   defaultModel: string;
   plannerModel: string;
+  autoPlan: string;
   providers: ProviderView[];
   permissions: PermissionsView;
   sandbox: SandboxView;

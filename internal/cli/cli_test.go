@@ -151,6 +151,23 @@ func TestRunMetadataCommandsDoNotMigrateLegacyConfig(t *testing.T) {
 	}
 }
 
+func TestConfigAutoPlanCommandWritesUserConfig(t *testing.T) {
+	isolateCLIConfigHome(t)
+
+	out := captureStdout(t, func() {
+		if rc := Run([]string{"config", "auto-plan", "on"}, "test-version"); rc != 0 {
+			t.Fatalf("config auto-plan rc = %d, want 0", rc)
+		}
+	})
+	if !strings.Contains(out, `auto_plan = "on"`) {
+		t.Fatalf("config auto-plan output = %q", out)
+	}
+	cfg := config.LoadForEdit(config.UserConfigPath())
+	if cfg.Agent.AutoPlan != "on" {
+		t.Fatalf("saved auto_plan = %q, want on", cfg.Agent.AutoPlan)
+	}
+}
+
 // TestConfigureKeys verifies that a shared api_key_env (each vendor's SKUs use
 // the same env var) is asked only once, and entered keys become env lines.
 func TestConfigureKeys(t *testing.T) {
