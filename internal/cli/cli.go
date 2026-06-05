@@ -1572,6 +1572,25 @@ func configAutoPlanCommand(args []string) int {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, "cannot resolve config path")
 		return 1
 	}
+	if *local {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			probe := config.Default()
+			if err := probe.SetAutoPlan(rest[0]); err != nil {
+				fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
+				return 2
+			}
+			mode, err := config.SaveMinimalProjectAutoPlan(path, rest[0])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
+				return 1
+			}
+			fmt.Printf("auto_plan = %q (%s)\n", mode, displayPath(path))
+			return 0
+		} else if err != nil {
+			fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
+			return 1
+		}
+	}
 	cfg := config.LoadForEdit(path)
 	if err := cfg.SetAutoPlan(rest[0]); err != nil {
 		fmt.Fprintln(os.Stderr, i18n.M.ErrorPrefix, err)
