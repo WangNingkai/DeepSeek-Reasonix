@@ -711,7 +711,15 @@ func (a *App) openSessionPaths(dir string) map[string]struct{} {
 
 // RestoreSession moves a trashed session back into the saved-session list.
 func (a *App) RestoreSession(path string) error {
-	return restoreTrashedSessionFile(config.SessionDir(), path)
+	dir := config.SessionDir()
+	_, key, _, err := validateTrashedSessionPath(dir, path)
+	if err != nil {
+		return err
+	}
+	if err := restoreTrashedSessionFile(dir, path); err != nil {
+		return err
+	}
+	return restoreSessionTopicIndex(dir, filepath.Join(dir, key))
 }
 
 // PurgeTrashedSession permanently removes a trashed session and its title/display

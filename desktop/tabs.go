@@ -22,6 +22,7 @@ import (
 	"reasonix/internal/config"
 	"reasonix/internal/control"
 	"reasonix/internal/event"
+	"reasonix/internal/provider"
 )
 
 // --- WorkspaceTab -----------------------------------------------------------
@@ -1450,6 +1451,98 @@ func migrateLegacySessionsIntoGlobalTopics(dir string) []string {
 	_ = saveTopicTitles("", topicTitles)
 	_ = saveTopicTitleSources("", topicSources)
 	return migratedTopicIDs
+}
+
+func restoreSessionTopicIndex(dir, sessionPath string) error {
+	sessionPath = strings.TrimSpace(sessionPath)
+	if sessionPath == "" {
+		return nil
+	}
+	meta, ok, err := agent.LoadBranchMeta(sessionPath)
+	if err != nil {
+		return err
+	}
+	if !ok || strings.TrimSpace(meta.TopicID) == "" {
+		migrateLegacySessionsIntoGlobalTopics(dir)
+		return nil
+	}
+
+	topicID := strings.TrimSpace(meta.TopicID)
+	scope := strings.TrimSpace(meta.Scope)
+	workspaceRoot := strings.TrimSpace(meta.WorkspaceRoot)
+	if scope != "global" && scope != "project" {
+		if workspaceRoot == "" {
+			scope = "global"
+		} else {
+			scope = "project"
+		}
+	}
+	if scope == "global" {
+		workspaceRoot = ""
+	} else {
+		workspaceRoot = normalizeProjectRoot(workspaceRoot)
+		if workspaceRoot == "" {
+			scope = "global"
+		}
+	}
+
+	title := restoredSessionTopicTitle(dir, sessionPath, meta)
+	if title == "" {
+		title = defaultTopicTitle
+	}
+	if err := setTopicTitleWithSource(workspaceRoot, topicID, title, topicTitleSourceManual); err != nil {
+		return err
+	}
+
+	f := loadProjectsFile()
+	if scope == "global" {
+		f.GlobalTopics = prependUniqueString(f.GlobalTopics, topicID)
+		meta.Scope = "global"
+		meta.WorkspaceRoot = ""
+	} else {
+		found := false
+		for i, p := range f.Projects {
+			if p.Root != workspaceRoot {
+				continue
+			}
+			f.Projects[i].Topics = prependUniqueString(p.Topics, topicID)
+			found = true
+			break
+		}
+		if !found {
+			f.Projects = append(f.Projects, desktopProject{
+				Root:   workspaceRoot,
+				Topics: []string{topicID},
+			})
+		}
+		meta.Scope = "project"
+		meta.WorkspaceRoot = workspaceRoot
+	}
+	meta.TopicID = topicID
+	meta.TopicTitle = title
+	if err := saveProjectsFile(f); err != nil {
+		return err
+	}
+	return agent.SaveBranchMetaPreserveUpdated(sessionPath, meta)
+}
+
+func restoredSessionTopicTitle(dir, sessionPath string, meta agent.BranchMeta) string {
+	if title := topicTitleFromText(meta.TopicTitle); title != "" {
+		return title
+	}
+	if title := topicTitleFromText(loadSessionTitles(dir)[filepath.Base(sessionPath)]); title != "" {
+		return title
+	}
+	if s, err := agent.LoadSession(sessionPath); err == nil {
+		for _, msg := range s.Messages {
+			if msg.Role == provider.RoleUser {
+				if title := topicTitleFromText(msg.Content); title != "" {
+					return title
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func legacySessionTopicID(path string) string {
